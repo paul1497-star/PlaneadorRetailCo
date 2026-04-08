@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Planeador de Compras — CEO Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Arial,sans-serif;background:#f0f4f8;color:#1a1a2e;font-size:13px}
+
+.header{background:linear-gradient(135deg,#1F3864,#2E75B6);color:#fff;padding:16px 28px;display:flex;align-items:center;justify-content:space-between;gap:12px}
+.header-left h1{font-size:17px;font-weight:700}
+.header-left .meta{font-size:10px;opacity:.75;margin-top:3px}
+.header-right{display:flex;align-items:center;gap:10px}
+.btn{border:none;padding:8px 16px;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px;white-space:nowrap}
+.btn-excel{background:#217346;color:#fff}.btn-excel:hover{background:#185c38}
+.btn-reload{background:rgba(255,255,255,.15);color:#fff;border:1px solid rgba(255,255,255,.3)}.btn-reload:hover{background:rgba(255,255,255,.25)}
+.filtro-desc{font-size:10px;color:rgba(255,255,255,.7);text-align:right;max-width:220px;line-height:1.4}
+
+/* LOADING */
+.loading-overlay{position:fixed;inset:0;background:rgba(31,56,100,.92);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:999;gap:16px}
+.loading-overlay.hidden{display:none}
+.spinner{width:48px;height:48px;border:4px solid rgba(255,255,255,.2);border-top-color:#fff;border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading-overlay p{color:#fff;font-size:14px;font-weight:600}
+.loading-overlay small{color:rgba(255,255,255,.6);font-size:11px}
+
+/* ERROR */
+.error-bar{background:#ffc7ce;color:#9c0006;padding:10px 24px;font-size:12px;font-weight:600;display:none;align-items:center;gap:8px}
+.error-bar.show{display:flex}
+
+/* KPIs */
+.kpi-row{display:flex;gap:10px;padding:14px 24px;background:#fff;border-bottom:1px solid #dde3ec}
+.kpi{flex:1;border-radius:10px;padding:10px 14px;text-align:center;border:1.5px solid transparent;cursor:pointer;transition:transform .1s}
+.kpi:hover{transform:scale(1.03)}
+.kpi .num{font-size:26px;font-weight:800;line-height:1}
+.kpi .lbl{font-size:10px;font-weight:700;margin-top:3px}
+.kpi.critico{background:#fff0f0;border-color:#f5c2c7;color:#9c0006}
+.kpi.comprar{background:#fff8e1;border-color:#ffd966;color:#7f6000}
+.kpi.vigilar{background:#f0fff4;border-color:#b7dfc2;color:#276221}
+.kpi.sobrestock{background:#e8f4fd;border-color:#9ec5e8;color:#1F3864}
+.kpi.sinrot{background:#f0f0f0;border-color:#ccc;color:#444}
+.kpi.total{background:#f5f0ff;border-color:#c5b3f0;color:#4B0082}
+.kpi.active{box-shadow:0 0 0 3px currentColor;transform:scale(1.05)}
+
+.filtros{display:flex;gap:10px;padding:10px 24px;background:#fff;border-bottom:1px solid #dde3ec;align-items:center;flex-wrap:wrap}
+.filtros label{font-size:10px;font-weight:700;color:#666}
+.filtros select,.filtros input{border:1px solid #ccc;border-radius:6px;padding:5px 9px;font-size:11px;background:#fafafa}
+.filtros input{width:220px}
+.btn-reset{background:#e8ecf1;border:1px solid #ccc;border-radius:6px;padding:5px 11px;font-size:11px;cursor:pointer;color:#444}
+.count-badge{background:#2E75B6;color:#fff;border-radius:12px;padding:2px 10px;font-size:11px;font-weight:700;margin-left:auto}
+.update-info{font-size:10px;color:#888;margin-left:8px}
+
+.tabla-wrap{padding:0 24px 24px;overflow-x:auto}
+table{width:100%;border-collapse:collapse;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.08);margin-top:12px;font-size:11px}
+thead tr{background:#1F3864;color:#fff}
+thead th{padding:9px 8px;text-align:center;font-size:10px;font-weight:700;white-space:nowrap;border-right:1px solid #2e4f8a}
+thead th.left{text-align:left;padding-left:12px}
+tbody tr{border-bottom:1px solid #eef1f6;transition:background .12s}
+tbody tr:hover{background:#f5f8ff}
+tbody td{padding:7px 8px;vertical-align:middle}
+tbody td.left{padding-left:12px;text-align:left}
+tbody td.ctr{text-align:center}
+tbody td.rgt{text-align:right;padding-right:10px}
+.marca-sep td{background:#2E75B6!important;color:#fff!important;font-weight:800;font-size:11px;padding:5px 12px!important}
+
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:800;text-align:center;min-width:78px}
+.b-critico{background:#ffc7ce;color:#9c0006}
+.b-comprar{background:#ffeb9c;color:#7f6000}
+.b-vigilar{background:#c6efce;color:#276221}
+.b-sobrestock{background:#deeaf1;color:#1F3864}
+.b-ok{background:#e8e8e8;color:#444}
+.b-sin{background:#d5d5d5;color:#555}
+
+.mp{display:inline-block;padding:1px 7px;border-radius:9px;font-size:10px;font-weight:800}
+.mp-binson{background:#ede0f7;color:#6a0dad}
+.mp-deko{background:#d5eaf5;color:#0d5ea0}
+.mp-dukto{background:#d5f5e3;color:#0d6e3a}
+
+.mi-r{color:#9c0006;font-weight:700;background:#fff0f0;border-radius:4px;padding:1px 5px}
+.mi-o{color:#7f6000;font-weight:700;background:#fff8e1;border-radius:4px;padding:1px 5px}
+.mi-g{color:#276221;font-weight:700;background:#f0fff4;border-radius:4px;padding:1px 5px}
+
+.aprobado-cell select{border:1px solid #ccc;border-radius:5px;padding:3px 5px;font-size:10px;width:100%;background:#fff;cursor:pointer}
+.footer{text-align:center;padding:12px;color:#888;font-size:10px;border-top:1px solid #dde3ec;background:#fff}
+</style>
+</head>
+<body>
+
+<!-- LOADING -->
+<div class="loading-overlay" id="loadingOverlay">
+  <div class="spinner"></div>
+  <p>Cargando datos desde Google Drive...</p>
+  <small id="loadingDetail">Conectando con BINSON, DEKO y DUKTO</small>
+</div>
+
+<!-- ERROR -->
+<div class="error-bar" id="errorBar">
+  ⚠ Error cargando datos. Verifica que los archivos en Drive sean públicos.
+  <button onclick="cargarDatos()" style="margin-left:12px;padding:3px 10px;border-radius:4px;border:1px solid #9c0006;background:#fff;color:#9c0006;cursor:pointer;font-size:11px">Reintentar</button>
+</div>
+
+<div class="header">
+  <div class="header-left">
+    <h1>Planeador de Compras — Decisión CEO</h1>
+    <div class="meta" id="headerMeta">Lead time: 120 días · BINSON · DEKO · DUKTO · Cargando datos...</div>
+  </div>
+  <div class="header-right">
+    <div class="filtro-desc" id="filtroDesc">Cargando...</div>
+    <button class="btn btn-reload" onclick="cargarDatos()">↻ Actualizar datos</button>
+    <button class="btn btn-excel" onclick="descargarExcel()">⬇ Descargar Excel</button>
+  </div>
+</div>
+
+<div class="kpi-row" id="kpiRow">
+  <div class="kpi critico"><div class="num">—</div><div class="lbl">CRÍTICO</div></div>
+  <div class="kpi comprar"><div class="num">—</div><div class="lbl">COMPRAR</div></div>
+  <div class="kpi vigilar"><div class="num">—</div><div class="lbl">VIGILAR</div></div>
+  <div class="kpi sobrestock"><div class="num">—</div><div class="lbl">SOBRESTOCK</div></div>
+  <div class="kpi sinrot"><div class="num">—</div><div class="lbl">SIN ROTACIÓN</div></div>
+  <div class="kpi total"><div class="num">—</div><div class="lbl">TOTAL SKUs</div></div>
+</div>
+
+<div class="filtros">
+  <label>Marca</label>
+  <select id="filtMarca" onchange="aplicarFiltros()">
+    <option value="">Todas</option>
+    <option>BINSON</option><option>DEKO</option><option>DUKTO</option>
+  </select>
+  <label>Estado</label>
+  <select id="filtEstado" onchange="aplicarFiltros()">
+    <option value="">Todos</option>
+    <option>CRÍTICO</option><option>COMPRAR</option><option>VIGILAR</option>
+    <option>OK</option><option>SOBRESTOCK</option><option>⚫ SIN ROTACIÓN</option>
+  </select>
+  <label>Buscar</label>
+  <input type="text" id="filtBuscar" placeholder="Producto o código..." oninput="aplicarFiltros()">
+  <button class="btn-reset" onclick="resetFiltros()">✕ Limpiar</button>
+  <span class="count-badge" id="countBadge">—</span>
+  <span class="update-info" id="updateInfo"></span>
+</div>
+
+<div class="tabla-wrap">
+  <table>
+    <thead><tr>
+      <th style="width:30px">#</th>
+      <th>Marca</th>
+      <th class="left" style="min-width:200px">Producto</th>
+      <th>Código</th>
+      <th>Stock</th>
+      <th>Prom 3M</th>
+      <th>M Inv 3</th>
+      <th>M Inv 6</th>
+      <th>Estado</th>
+      <th>Sugerido</th>
+      <th>Tendencia</th>
+      <th style="min-width:115px">Decisión CEO</th>
+    </tr></thead>
+    <tbody id="tbody"><tr><td colspan="12" style="text-align:center;padding:40px;color:#aaa">Cargando datos desde Google Drive...</td></tr></tbody>
+  </table>
+</div>
+
+<div class="footer" id="footer">Planeador de Compras · Conectado a Google Drive · Lead time estándar 120 días</div>
+
+<script>
+// ── IDs de Google Drive ───────────────────────────────
+const DRIVE_IDS = {
+  BINSON: "173homC1AOF659OPsHkDW4LmnkV9NUdAr",
+  DEKO:   "10QTctIe-dB0e4s-2Tu7wlY9J81oW3u1V",
+  DUKTO:  "1ef-9IKx_dg_9uU4IgWnAWCegq9ZCFG9R",
+};
+
+const ORDEN = {"CRÍTICO":1,"COMPRAR":2,"VIGILAR":3,"OK":4,"SOBRESTOCK":5,"⚫ SIN ROTACIÓN":6};
+const aprobaciones = {};
+let DATA = [];
+let datosFiltrados = [];
+let filtroKpi = "";
+
+// ── Cargar Excel desde Drive ──────────────────────────
+async function cargarArchivo(marca, fileId){
+  document.getElementById("loadingDetail").textContent = `Descargando ${marca}...`;
+  const url = `https://drive.google.com/uc?export=download&id=${fileId}`;
+  const res = await fetch(url);
+  if(!res.ok) throw new Error(`Error ${res.status} al cargar ${marca}`);
+  const buf = await res.arrayBuffer();
+  const wb = XLSX.read(buf, {type:"array"});
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(ws, {defval:""});
+  return rows.map(r=>({
+    marca,
+    producto: String(r["Producto"]||"").trim(),
+    codigo:   String(r["Codigo"]||r["Código"]||"").replace(/\.0$/,"").trim(),
+    stock:    Number(r["Cant Stock"]||0),
+    cantV:    Number(r["Cant V"]||0),
+    prom3m:   Math.round(Number(r["Prom 3M"]||0)),
+    prom6m:   Math.round(Number(r["Prom 6M"]||0)),
+    mInv3:    Math.round(Number(r["M Inv 3"]||0)*100)/100,
+    mInv6:    Math.round(Number(r["M Inv 6"]||0)*100)/100,
+    estado:   String(r["Estado Compra"]||"").trim(),
+    sugerido: Number(r["Sugerido Compra"]||0),
+    tendencia:String(r["Tendencia"]||"").replace("➡️","→").trim(),
+  }));
+}
+
+async function cargarDatos(){
+  document.getElementById("loadingOverlay").classList.remove("hidden");
+  document.getElementById("errorBar").classList.remove("show");
+  DATA = [];
+  try {
+    for(const [marca, id] of Object.entries(DRIVE_IDS)){
+      const rows = await cargarArchivo(marca, id);
+      DATA.push(...rows);
+    }
+    const ahora = new Date().toLocaleString("es-CO",{hour:"2-digit",minute:"2-digit",day:"2-digit",month:"2-digit",year:"numeric"});
+    document.getElementById("updateInfo").textContent = `Actualizado: ${ahora}`;
+    document.getElementById("headerMeta").textContent =
+      `Lead time: 120 días · BINSON · DEKO · DUKTO · ${DATA.length} SKUs · ${ahora}`;
+    document.getElementById("footer").textContent =
+      `Planeador de Compras · Datos en vivo desde Google Drive · Actualizado ${ahora} · Lead time 120 días`;
+    aplicarFiltros();
+  } catch(e){
+    console.error(e);
+    document.getElementById("errorBar").classList.add("show");
+    document.getElementById("tbody").innerHTML =
+      `<tr><td colspan="12" style="text-align:center;padding:40px;color:#9c0006">Error al cargar datos: ${e.message}</td></tr>`;
+  } finally {
+    document.getElementById("loadingOverlay").classList.add("hidden");
+  }
+}
+
+// ── Helpers visuales ──────────────────────────────────
+function fmt(n){return Number(n).toLocaleString("es-CO")}
+function fmtD(n){return Number(n).toFixed(2)}
+
+function badge(e){
+  const m={
+    "CRÍTICO":  ["b-critico","🔴 CRÍTICO"],
+    "COMPRAR":  ["b-comprar","🟡 COMPRAR"],
+    "VIGILAR":  ["b-vigilar","🟢 VIGILAR"],
+    "OK":       ["b-ok",     "✅ OK"],
+    "SOBRESTOCK":["b-sobrestock","📦 SOBRESTOCK"],
+    "⚫ SIN ROTACIÓN":["b-sin","⚫ SIN ROT."],
+  };
+  const[c,l]=m[e]||["b-ok",e];
+  return `<span class="badge ${c}">${l}</span>`;
+}
+function mp(m){
+  const c={BINSON:"mp-binson",DEKO:"mp-deko",DUKTO:"mp-dukto"}[m]||"";
+  return `<span class="mp ${c}">${m}</span>`;
+}
+function miSpan(v){
+  const c=v<1?"mi-r":v<4?"mi-o":"mi-g";
+  return `<span class="${c}">${fmtD(v)}</span>`;
+}
+
+// ── KPIs ──────────────────────────────────────────────
+function renderKPIs(datos){
+  const cnt=e=>datos.filter(d=>d.estado===e).length;
+  const kpis=[
+    {k:"critico",    lbl:"CRÍTICO",      e:"CRÍTICO"},
+    {k:"comprar",    lbl:"COMPRAR",      e:"COMPRAR"},
+    {k:"vigilar",    lbl:"VIGILAR",      e:"VIGILAR"},
+    {k:"sobrestock", lbl:"SOBRESTOCK",   e:"SOBRESTOCK"},
+    {k:"sinrot",     lbl:"SIN ROTACIÓN", e:"⚫ SIN ROTACIÓN"},
+    {k:"total",      lbl:"TOTAL VISTA",  e:""},
+  ];
+  document.getElementById("kpiRow").innerHTML = kpis.map(k=>{
+    const val = k.e ? cnt(k.e) : datos.length;
+    const active = filtroKpi===k.e ? "active":"";
+    return `<div class="kpi ${k.k} ${active}" onclick="filtrarPorKpi('${k.e}')">
+      <div class="num">${val}</div><div class="lbl">${k.lbl}</div></div>`;
+  }).join("");
+}
+
+function filtrarPorKpi(estado){
+  filtroKpi = filtroKpi===estado ? "" : estado;
+  document.getElementById("filtEstado").value = filtroKpi;
+  aplicarFiltros();
+}
+
+// ── Filtros ───────────────────────────────────────────
+function actualizarDesc(){
+  const m=document.getElementById("filtMarca").value;
+  const e=document.getElementById("filtEstado").value;
+  const b=document.getElementById("filtBuscar").value;
+  const partes=[];
+  if(m) partes.push(`Marca: ${m}`);
+  if(e) partes.push(`Estado: ${e}`);
+  if(b) partes.push(`"${b}"`);
+  document.getElementById("filtroDesc").textContent = partes.length
+    ? `Filtro: ${partes.join(" · ")}`
+    : "Mostrando todos los productos";
+}
+
+function aplicarFiltros(){
+  const m=document.getElementById("filtMarca").value;
+  const e=document.getElementById("filtEstado").value;
+  filtroKpi=e;
+  const b=document.getElementById("filtBuscar").value.toLowerCase();
+  let datos=[...DATA];
+  if(m) datos=datos.filter(d=>d.marca===m);
+  if(e) datos=datos.filter(d=>d.estado===e);
+  if(b) datos=datos.filter(d=>
+    d.producto.toLowerCase().includes(b)||d.codigo.toLowerCase().includes(b));
+  datos.sort((a,b2)=>{
+    if(a.marca!==b2.marca) return a.marca.localeCompare(b2.marca);
+    const pa=ORDEN[a.estado]||9,pb=ORDEN[b2.estado]||9;
+    if(pa!==pb) return pa-pb;
+    return a.mInv3-b2.mInv3;
+  });
+  datosFiltrados=datos;
+  renderKPIs(datos);
+  actualizarDesc();
+  document.getElementById("countBadge").textContent=datos.length+" SKUs";
+  renderTabla(datos);
+}
+
+function resetFiltros(){
+  document.getElementById("filtMarca").value="";
+  document.getElementById("filtEstado").value="";
+  document.getElementById("filtBuscar").value="";
+  filtroKpi="";
+  aplicarFiltros();
+}
+
+// ── Tabla ─────────────────────────────────────────────
+function renderTabla(datos){
+  const tbody=document.getElementById("tbody");
+  if(!datos.length){
+    tbody.innerHTML=`<tr><td colspan="12" style="text-align:center;padding:30px;color:#aaa">Sin resultados para los filtros seleccionados</td></tr>`;
+    return;
+  }
+  let html="",prevMarca="",n=0;
+  for(const d of datos){
+    if(d.marca!==prevMarca){
+      html+=`<tr class="marca-sep"><td colspan="12">▶ &nbsp;${d.marca}</td></tr>`;
+      prevMarca=d.marca;
+    }
+    n++;
+    const id=`${d.marca}_${d.codigo}`;
+    const ap=aprobaciones[id]||"";
+    html+=`<tr>
+      <td class="ctr" style="color:#bbb">${n}</td>
+      <td class="ctr">${mp(d.marca)}</td>
+      <td class="left" style="font-size:10px;line-height:1.3">${d.producto}</td>
+      <td class="ctr" style="color:#666;font-size:10px">${d.codigo}</td>
+      <td class="rgt">${fmt(d.stock)}</td>
+      <td class="rgt">${fmt(d.prom3m)}</td>
+      <td class="ctr">${miSpan(d.mInv3)}</td>
+      <td class="ctr">${miSpan(d.mInv6)}</td>
+      <td class="ctr">${badge(d.estado)}</td>
+      <td class="rgt" style="font-weight:700">${d.sugerido>0?fmt(d.sugerido):"—"}</td>
+      <td class="ctr" style="font-size:10px;color:#777">${d.tendencia}</td>
+      <td class="ctr"><select onchange="aprobaciones['${id}']=this.value">
+        <option value="" ${ap===""?"selected":""}>— Pendiente —</option>
+        <option value="S" ${ap==="S"?"selected":""}>✅ Aprobar</option>
+        <option value="N" ${ap==="N"?"selected":""}>❌ No aprobar</option>
+        <option value="R" ${ap==="R"?"selected":""}>🔄 Revisar</option>
+      </select></td>
+    </tr>`;
+  }
+  tbody.innerHTML=html;
+}
+
+// ── Excel con formato (solo vista filtrada) ───────────
+function descargarExcel(){
+  const C={
+    hdrDark:"FF1F3864",hdrMid:"FF2E75B6",
+    rojoBg:"FFFFC7CE",rojoFg:"FF9C0006",
+    narBg:"FFFFEB9C",narFg:"FF7F6000",
+    verdBg:"FFC6EFCE",verdFg:"FF276221",
+    azulBg:"FFDEEAF1",azulFg:"FF1F3864",
+    grisBg:"FFF2F2F2",blanco:"FFFFFFFF",
+    negro:"FF000000",gris:"FF666666",
+    binson:"FFE8D5F5",deko:"FFD5EAF5",dukto:"FFD5F5E3",
+  };
+  function cs(bg,fg,bold=false,sz=10,ha="center"){
+    return{font:{name:"Arial",sz,bold,color:{rgb:fg||C.negro}},
+      fill:{patternType:"solid",fgColor:{rgb:bg||C.blanco}},
+      alignment:{horizontal:ha,vertical:"center",wrapText:true},
+      border:{top:{style:"thin",color:{rgb:"FFBFBFBF"}},bottom:{style:"thin",color:{rgb:"FFBFBFBF"}},
+              left:{style:"thin",color:{rgb:"FFBFBFBF"}},right:{style:"thin",color:{rgb:"FFBFBFBF"}}}};
+  }
+  function esStyle(e){
+    const m={"CRÍTICO":[C.rojoBg,C.rojoFg],"COMPRAR":[C.narBg,C.narFg],
+      "VIGILAR":[C.verdBg,C.verdFg],"SOBRESTOCK":[C.azulBg,C.azulFg]};
+    const[bg,fg]=m[e]||[C.grisBg,C.gris];
+    return cs(bg,fg,true);
+  }
+  function miStyle(v){
+    const[bg,fg]=v<1?[C.rojoBg,C.rojoFg]:v<4?[C.narBg,C.narFg]:[C.verdBg,C.verdFg];
+    return cs(bg,fg,true);
+  }
+  function mStyle(m){
+    const bg={BINSON:C.binson,DEKO:C.deko,DUKTO:C.dukto}[m]||C.grisBg;
+    return cs(bg,C.negro,true);
+  }
+
+  const wb2=XLSX.utils.book_new();
+  const datos=datosFiltrados;
+  const m=document.getElementById("filtMarca").value||"Todas las marcas";
+  const e=document.getElementById("filtEstado").value||"Todos los estados";
+  const b=document.getElementById("filtBuscar").value;
+  const fecha=new Date().toLocaleDateString("es-CO",{year:"numeric",month:"long",day:"numeric"});
+  const hora=new Date().toLocaleTimeString("es-CO",{hour:"2-digit",minute:"2-digit"});
+  const filtroInfo=`${m} · ${e}${b?" · "+b:""} · ${datos.length} SKUs · ${fecha} ${hora} · Lead time: 120 días`;
+
+  function buildWS(filas, titulo, info){
+    const ws={};
+    const HDR=["Marca","Producto","Código","Stock","Prom 3M","M Inv 3","M Inv 6","Estado","Sugerido","Tendencia","Decisión CEO"];
+    const W=[12,46,14,12,11,9,9,14,12,12,14];
+    let r=0;
+    // Título
+    for(let c=0;c<11;c++) ws[XLSX.utils.encode_cell({r,c})]={v:c===0?titulo:"",t:"s",s:cs(C.hdrDark,C.blanco,true,13,"center")};
+    r++;
+    // Info filtro
+    for(let c=0;c<11;c++) ws[XLSX.utils.encode_cell({r,c})]={v:c===0?info:"",t:"s",s:cs(C.hdrMid,C.blanco,false,9,"center")};
+    r++;
+    // Resumen KPIs
+    const estados=[...new Set(filas.map(d=>d.estado))];
+    const kpiTxt=estados.map(e2=>`${e2}: ${filas.filter(d=>d.estado===e2).length}`).join("  |  ")+`  |  TOTAL: ${filas.length}`;
+    for(let c=0;c<11;c++) ws[XLSX.utils.encode_cell({r,c})]={v:c===0?kpiTxt:"",t:"s",s:cs(C.grisBg,C.negro,true,9,"center")};
+    r++;r++;
+    // Headers
+    HDR.forEach((h,c)=>{ws[XLSX.utils.encode_cell({r,c})]={v:h,t:"s",s:cs(C.hdrDark,C.blanco,true,10,"center")};});
+    r++;
+    // Datos
+    let prevM="";
+    filas.forEach((d,i)=>{
+      if(d.marca!==prevM){
+        for(let c=0;c<11;c++) ws[XLSX.utils.encode_cell({r,c})]={v:c===0?`▶  ${d.marca}`:"",t:"s",s:cs(C.hdrMid,C.blanco,true,11,c===0?"left":"center")};
+        r++;prevM=d.marca;
+      }
+      const id=`${d.marca}_${d.codigo}`;
+      const ap=aprobaciones[id]||"";
+      const apLabel=ap==="S"?"✅ Aprobado":ap==="N"?"❌ No aprobado":ap==="R"?"🔄 Revisar":"— Pendiente —";
+      const apStyle=cs(ap==="S"?C.verdBg:ap==="N"?C.rojoBg:ap==="R"?C.narBg:C.blanco,
+                       ap==="S"?C.verdFg:ap==="N"?C.rojoFg:ap==="R"?C.narFg:C.gris,ap!=="",10,"center");
+      const eb=i%2===0?C.grisBg:C.blanco;
+      const row=[
+        {v:d.marca,s:mStyle(d.marca)},
+        {v:d.producto,s:cs(eb,C.negro,false,9,"left")},
+        {v:d.codigo,s:cs(eb,C.gris,false,9,"center")},
+        {v:d.stock,s:cs(eb,C.negro,false,10,"right"),t:"n"},
+        {v:d.prom3m,s:cs(eb,C.negro,false,10,"right"),t:"n"},
+        {v:d.mInv3,s:miStyle(d.mInv3),t:"n",z:"0.00"},
+        {v:d.mInv6,s:miStyle(d.mInv6),t:"n",z:"0.00"},
+        {v:d.estado,s:esStyle(d.estado)},
+        {v:d.sugerido,s:cs(eb,C.negro,true,10,"right"),t:"n"},
+        {v:d.tendencia,s:cs(eb,C.gris,false,9,"center")},
+        {v:apLabel,s:apStyle},
+      ];
+      row.forEach(({v,s,t,z},c)=>{
+        const cell={v,t:t||"s",s};if(z)cell.z=z;
+        ws[XLSX.utils.encode_cell({r,c})]=cell;
+      });
+      r++;
+    });
+    // Nota
+    r++;
+    ws[XLSX.utils.encode_cell({r,c:0})]={v:"* Lead time estándar: 120 días. Cantidades sugeridas deben validarse en SAP antes de emitir OC.",t:"s",
+      s:{font:{name:"Arial",sz:8,italic:true,color:{rgb:C.gris}}}};
+    ws["!ref"]=XLSX.utils.encode_range({s:{r:0,c:0},e:{r:r+1,c:10}});
+    ws["!cols"]=W.map(w=>({wch:w}));
+    ws["!merges"]=[];
+    for(let fi=0;fi<3;fi++) ws["!merges"].push({s:{r:fi,c:0},e:{r:fi,c:10}});
+    return ws;
+  }
+
+  // Hoja vista actual
+  XLSX.utils.book_append_sheet(wb2, buildWS(datos,`Análisis Compras CEO — ${m} · ${e}`,filtroInfo), "Vista Actual");
+
+  // Hoja decisiones si hay
+  const conDec=datos.filter(d=>aprobaciones[`${d.marca}_${d.codigo}`]);
+  if(conDec.length>0){
+    XLSX.utils.book_append_sheet(wb2, buildWS(conDec,"Decisiones CEO marcadas",`${conDec.length} productos con decisión · ${fecha}`), "Decisiones CEO");
+  }
+
+  const fname=`Compras_CEO_${new Date().toISOString().slice(0,10)}${m!=="Todas las marcas"?"_"+m:""}${e!=="Todos los estados"?"_"+e.replace("⚫ ",""):""}.xlsx`;
+  XLSX.writeFile(wb2, fname);
+}
+
+// ── Arrancar ──────────────────────────────────────────
+cargarDatos();
+</script>
+</body>
+</html>
